@@ -3,6 +3,11 @@
 Convert Terraform / OpenTofu templates (.tf) to JSON for saner ops. This project
 also supports decoding HCL expressions into a parseable JSON format.
 
+This is currently done in two passes:
+
+- pass 1: parse the HCL into a general JSON structure using hcl2json WASM.
+- pass 2: expand expressions left by pass 1 into JSON with tree-sitter-hcl.
+
 ## Usage
 
 Go 1.22+ and [TinyGO](https://tinygo.org) are required for building.
