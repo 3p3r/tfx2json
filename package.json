@@ -7,7 +7,8 @@
     "install:hcl": "npm install --prefix ./tree-sitter-hcl",
     "build:hcl": "cd tree-sitter-hcl && npm i && npx tree-sitter generate",
     "clean:hcl": "cd tree-sitter-hcl && git checkout -- .",
-    "build": "npm run build:hcl && npm run clean:hcl"
+    "build": "npm run build:hcl && npm run clean:hcl",
+    "start": "tsx index.ts"
   },
   "repository": {
     "type": "git",
@@ -21,7 +22,9 @@
   },
   "homepage": "https://github.com/3p3r/tfx2json#readme",
   "devDependencies": {
+    "@types/node": "^22.13.1",
     "tree-sitter": "0.20.6",
+    "tsx": "^4.19.2",
     "web-tree-sitter": "0.20.8"
   }
 }
