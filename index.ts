@@ -5,10 +5,12 @@ import path from "node:path";
 import assert from "node:assert";
 import { Writable } from "node:stream";
 import { randomFillSync } from "node:crypto";
+
+import traverse from "traverse";
+import IsoWASI from "wasi-js";
 import type { WASIBindings } from "wasi-js";
 import { type IFsWithVolume, Volume } from "memfs";
 import memfs from "memfs";
-import IsoWASI from "wasi-js";
 
 import Parser from "tree-sitter";
 import HCL from "./tree-sitter-hcl";
@@ -27,6 +29,8 @@ const bindings: () => Partial<WASIBindings> = () => ({
 });
 
 async function hcl2json(templatePath: string): Promise<ValueOrIntrinsic> {
+  const parser = new Parser();
+  parser.setLanguage(HCL);
   const sourceCode = await fs.promises.readFile(templatePath, "utf8");
   const volume = { ...memfs.fs, ...new Volume() } as IFsWithVolume;
   volume.mkdirSync("/tmp", { recursive: true });
@@ -59,25 +63,33 @@ async function hcl2json(templatePath: string): Promise<ValueOrIntrinsic> {
   const module = await WebAssembly.compile(wasmSource);
   const instance = await WebAssembly.instantiate(module, importObject);
   wasi.start(instance);
-  // at this stage, we should have a JSON with intrinsics in.
-  // todo: use tree sitter to parse intrinsics on the way out
-  return JSON.parse(output.join("").trim());
+  const raw = JSON.parse(output.join("").trim());
+  const remapped = traverse(raw).map(function (value) {
+    if (typeof value === "string" && value.startsWith("${")) {
+      const mock = value.replace("${", "mock{mock=");
+      const parsed = parser.parse(mock);
+      assert(parsed.rootNode.type === "config_file");
+      const body = parsed.rootNode.namedChildren.find((n) => n.type === "body");
+      assert(body, "body not found");
+      const block = body.namedChildren.find((n) => n.type === "block");
+      assert(block, "block not found");
+      const innerBody = block.namedChildren.find((n) => n.type === "body");
+      assert(innerBody, "inner body not found");
+      const attr = innerBody.namedChildren.find((n) => n.type === "attribute");
+      assert(attr, "attribute not found");
+      const expr = attr.namedChildren.find((n) => n.type === "expression");
+      assert(expr, "expression not found");
+      const code = codegen(expr);
+      this.update(code);
+    }
+  });
+  return remapped;
 }
 
 (async () => {
   const config = await hcl2json(path.join(__dirname, "sample.tf"));
   console.log(JSON.stringify(config, null, 2));
 })();
-
-const SEP = "س";
-const parser = new Parser();
-parser.setLanguage(HCL);
-
-// const sourceCode = fs.readFileSync(path.join(__dirname, "sample.tf"), "utf8");
-// const tree = parser.parse(sourceCode);
-// const code = codegen(tree.rootNode);
-
-// console.log(`const config = ${code};`);
 
 function codegen(node: SyntaxNode): ValueOrIntrinsic {
   switch (node.type) {
@@ -89,22 +101,6 @@ function codegen(node: SyntaxNode): ValueOrIntrinsic {
       return emitLiteralValue(node);
     case "expression":
       return emitExpression(node);
-    case "attribute":
-      return emitAttribute(node);
-    case "block":
-      return emitBlock(node);
-    case "body":
-      return emitBody(node);
-    case "config_file":
-      return emitConfigFile(node);
-    case "collection_value":
-      return emitCollectionValue(node);
-    case "tuple":
-      return emitTuple(node);
-    case "object":
-      return emitObject(node);
-    case "object_elem":
-      return emitObjectElem(node);
     case "variable_expr":
       return emitVariableExpr(node);
     case "function_call":
@@ -113,6 +109,16 @@ function codegen(node: SyntaxNode): ValueOrIntrinsic {
       return emitIdentifier(node);
     case "get_attr":
       return emitGetAttr(node);
+    case "conditional":
+      return emitConditional(node);
+    case "index":
+      return emitIndex(node);
+    case "splat":
+      return emitSplat(node);
+    case "attr_splat":
+      return emitAttrSplat(node);
+    case "full_splat":
+      return emitFullSplat(node);
     case "comment":
     default:
       console.log(`missing >>> ${node.type}`);
@@ -120,46 +126,84 @@ function codegen(node: SyntaxNode): ValueOrIntrinsic {
   }
 }
 
+function emitFullSplat(node: SyntaxNode): ValueOrIntrinsic {
+  return emitAttrSplat(node);
+}
+
+function emitAttrSplat(node: SyntaxNode): ValueOrIntrinsic {
+  return node.children.map((n) => {
+    if (n.isNamed) return codegen(n);
+    return "*";
+  });
+}
+
+function emitSplat(node: SyntaxNode): ValueOrIntrinsic {
+  return codegen(node.namedChildren[0]);
+}
+
+function emitConditional(node: SyntaxNode): ValueOrIntrinsic {
+  const cond = node.namedChildren.find((n) => n.type === "expression");
+  assert(cond, `expression not found in ${node.text}`);
+  const lhs = node.namedChildren.find((n) => n.type === "expression" && n !== cond);
+  assert(lhs, `lhs not found in ${node.text}`);
+  const rhs = node.namedChildren.find((n) => n.type === "expression" && n !== cond && n !== lhs);
+  assert(rhs, `rhs not found in ${node.text}`);
+  return {
+    fn: "conditional",
+    args: [
+      {
+        name: "cond",
+        value: codegen(cond),
+      },
+      {
+        name: "true",
+        value: codegen(lhs),
+      },
+      {
+        name: "false",
+        value: codegen(rhs),
+      },
+    ],
+  } as Intrinsic;
+}
+
+function emitIndex(node: SyntaxNode): ValueOrIntrinsic {
+  return Number.parseInt(emitGetAttr(node) as string);
+}
+
 function emitGetAttr(node: SyntaxNode): ValueOrIntrinsic {
-  return node.namedChildren.map(codegen).join(".");
+  assert(node.namedChildren.length === 1);
+  return node.namedChildren[0].text.replace(".", "");
 }
 
 function emitFunctionCall(node: SyntaxNode): ValueOrIntrinsic {
   const name = emitIdentifier(node.namedChildren[0]);
   const args = node.namedChildren.find((n) => n.type === "function_arguments");
-  if (args) {
-    return `fn_${name}(${args.namedChildren.map(codegen).join(",")})`;
-  }
-  return `fn_${name}()`;
+  return {
+    fn: name,
+    args: args
+      ? {
+          name: "args",
+          value: args.namedChildren.map(codegen),
+        }
+      : [],
+  } as Intrinsic;
 }
 
 function emitIdentifier(node: SyntaxNode): ValueOrIntrinsic {
-  return `${node.text}`;
+  return {
+    fn: "identifier",
+    args: [
+      {
+        name: "name",
+        value: node.text,
+      },
+    ],
+  } as Intrinsic;
 }
 
 function emitVariableExpr(node: SyntaxNode): ValueOrIntrinsic {
   return emitIdentifier(node.namedChildren[0]);
-}
-
-function emitObjectElem(node: SyntaxNode): ValueOrIntrinsic {
-  // first expression is the key, second is the value
-  const key = codegen(node.namedChildren.filter((n) => n.type === "expression")[0]);
-  const val = codegen(node.namedChildren.filter((n) => n.type === "expression")[1]);
-  return `${key}:${val}`;
-}
-
-function emitObject(node: SyntaxNode): ValueOrIntrinsic {
-  const filtered = node.namedChildren.filter((n) => n.type !== "object_start" && n.type !== "object_end");
-  return `{${filtered.map(codegen).join(",")}}`;
-}
-
-function emitTuple(node: SyntaxNode): ValueOrIntrinsic {
-  const filtered = node.namedChildren.filter((n) => n.type !== "tuple_start" && n.type !== "tuple_end");
-  return `[${filtered.map(codegen).join(",")}]`;
-}
-
-function emitCollectionValue(node: SyntaxNode): ValueOrIntrinsic {
-  return codegen(node.namedChildren[0]);
 }
 
 function emitLiteralValue(node: SyntaxNode): ValueOrIntrinsic {
@@ -170,8 +214,8 @@ function emitExpression(node: SyntaxNode): ValueOrIntrinsic {
   const term = node.namedChildren[0];
   const rest = node.namedChildren.slice(1);
   if (rest.length) {
-    return JSON.stringify({
-      fn: "expressions",
+    return {
+      fn: "expression",
       args: [
         {
           name: "term",
@@ -179,54 +223,12 @@ function emitExpression(node: SyntaxNode): ValueOrIntrinsic {
         },
         {
           name: "rest",
-          value: rest.map(codegen),
+          value: rest.flatMap(codegen),
         },
       ],
-    } as Intrinsic);
+    } as Intrinsic;
   }
   return codegen(term);
-}
-
-function emitAttribute(node: SyntaxNode): ValueOrIntrinsic {
-  const id = node.namedChildren.find((n) => n.type === "identifier");
-  assert(id, `identifier not found in ${node.text}`);
-  const expr = node.namedChildren.find((n) => n.type === "expression");
-  assert(expr, `expression not found in ${node.text}`);
-  return `${id.text}:${codegen(expr)}`;
-}
-
-function emitBlock(node: SyntaxNode): ValueOrIntrinsic {
-  const name = node.namedChildren.find((n) => n.type === "identifier");
-  const body = node.namedChildren.find((n) => n.type === "body");
-  if (!name) {
-    assert(body, `body not found in ${node.text}`);
-    const b = codegen(body);
-    assert(!IsParsedIntrinsic(b), `unexpected block body: ${body.text}`);
-    return `...${b}`;
-  }
-  const rest = node.namedChildren.filter((n) => (n.type === "identifier" && n !== name) || n.type === "string_lit");
-  const suffix = rest.length
-    ? `${SEP}${rest
-        .map((n) => {
-          if (n.type === "identifier") {
-            return n.text;
-          }
-          return JSON.parse(n.text);
-        })
-        .join(SEP)}`
-    : "";
-  const key = `${name.text}${suffix}`;
-  return body ? `${key}:${codegen(body)}` : `${key}:{}`;
-}
-
-function emitBody(node: SyntaxNode): ValueOrIntrinsic {
-  return `{${node.namedChildren.map(codegen).join(",")}}`;
-}
-
-function emitConfigFile(node: SyntaxNode): ValueOrIntrinsic {
-  const body = node.namedChildren.find((n) => n.type === "body");
-  assert(body, "body not found");
-  return codegen(body);
 }
 
 export function IsParsedIntrinsic(value?: any): value is Intrinsic {

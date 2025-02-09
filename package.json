@@ -20,7 +20,9 @@
   "homepage": "https://github.com/3p3r/tfx2json#readme",
   "devDependencies": {
     "@types/node": "^22.13.1",
+    "@types/traverse": "^0.6.37",
     "memfs": "^4.17.0",
+    "traverse": "^0.6.11",
     "tree-sitter": "0.20.6",
     "tsx": "^4.19.2",
     "wasi-js": "^1.7.3",

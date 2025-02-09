@@ -39,7 +39,9 @@ module "vpc" {
 
 resource "aws_security_group" "external_connection" {
   name_prefix = "all_worker_management"
-  vpc_id      = module.vpc.vpc_id
+  vpc_id2      = module.vpc.vpc_id[*].0
+  vpc_id      = module.vpc.vpc_id.*.0
+  rando       = var.create_secondary_cluster ? 1 : 0
 
   ingress {
     from_port = 22
@@ -72,7 +74,31 @@ currently it outputs:
   "module": {
     "vpc": [
       {
-        "azs": "${data.aws_availability_zones.available.names}",
+        "azs": {
+          "fn": "expression",
+          "args": [
+            {
+              "name": "term",
+              "value": {
+                "fn": "identifier",
+                "args": [
+                  {
+                    "name": "name",
+                    "value": "data"
+                  }
+                ]
+              }
+            },
+            {
+              "name": "rest",
+              "value": [
+                "aws_availability_zones",
+                "available",
+                "names"
+              ]
+            }
+          ]
+        },
         "cidr": "10.0.0.0/16",
         "enable_dns_hostnames": true,
         "name": "jasonb-vpc",
@@ -108,7 +134,97 @@ currently it outputs:
             }
           ],
           "name_prefix": "all_worker_management",
-          "vpc_id": "${module.vpc.vpc_id}"
+          "rando": {
+            "fn": "conditional",
+            "args": [
+              {
+                "name": "cond",
+                "value": {
+                  "fn": "expression",
+                  "args": [
+                    {
+                      "name": "term",
+                      "value": {
+                        "fn": "identifier",
+                        "args": [
+                          {
+                            "name": "name",
+                            "value": "var"
+                          }
+                        ]
+                      }
+                    },
+                    {
+                      "name": "rest",
+                      "value": [
+                        "create_secondary_cluster"
+                      ]
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "true",
+                "value": "1"
+              },
+              {
+                "name": "false",
+                "value": "0"
+              }
+            ]
+          },
+          "vpc_id": {
+            "fn": "expression",
+            "args": [
+              {
+                "name": "term",
+                "value": {
+                  "fn": "identifier",
+                  "args": [
+                    {
+                      "name": "name",
+                      "value": "module"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "rest",
+                "value": [
+                  "vpc",
+                  "vpc_id",
+                  "*",
+                  0
+                ]
+              }
+            ]
+          },
+          "vpc_id2": {
+            "fn": "expression",
+            "args": [
+              {
+                "name": "term",
+                "value": {
+                  "fn": "identifier",
+                  "args": [
+                    {
+                      "name": "name",
+                      "value": "module"
+                    }
+                  ]
+                }
+              },
+              {
+                "name": "rest",
+                "value": [
+                  "vpc",
+                  "vpc_id",
+                  "*",
+                  0
+                ]
+              }
+            ]
+          }
         }
       ]
     }
