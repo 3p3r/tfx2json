@@ -3,19 +3,81 @@
 import fs from "node:fs";
 import path from "node:path";
 import assert from "node:assert";
+import { Writable } from "node:stream";
+import { randomFillSync } from "node:crypto";
+import type { WASIBindings } from "wasi-js";
+import { type IFsWithVolume, Volume } from "memfs";
+import memfs from "memfs";
+import IsoWASI from "wasi-js";
 
 import Parser from "tree-sitter";
 import HCL from "./tree-sitter-hcl";
+
+const bindings: () => Partial<WASIBindings> = () => ({
+  hrtime: process.hrtime.bigint,
+  exit(code: number) {
+    this.exitCode = code;
+  },
+  kill(signal: string) {
+    this.exitCode = signal;
+  },
+  randomFillSync,
+  isTTY: () => true,
+  path,
+});
+
+async function hcl2json(templatePath: string): Promise<ValueOrIntrinsic> {
+  const sourceCode = await fs.promises.readFile(templatePath, "utf8");
+  const volume = { ...memfs.fs, ...new Volume() } as IFsWithVolume;
+  volume.mkdirSync("/tmp", { recursive: true });
+  volume.writeFileSync("/tmp/input.tf", sourceCode);
+  const output = [] as string[];
+  const stdout = new Writable({
+    write(chunk, encoding, callback) {
+      output.push(chunk.toString());
+      callback();
+    },
+  });
+  const stderr = new Writable();
+  const wasi = new IsoWASI({
+    bindings: { ...bindings(), fs: volume } as WASIBindings,
+    preopens: { ".": "/tmp" },
+    args: ["hcl2json", "input.tf"],
+    env: process.env,
+    sendStdout: (buf) => stdout.write(buf),
+    sendStderr: (buf) => stderr.write(buf),
+    getStdin() {
+      return Buffer.from("\n");
+    },
+  });
+  const importObject = {
+    wasi_snapshot_preview1: wasi.wasiImport,
+    wasi_unstable: wasi.wasiImport,
+    wasi: wasi.wasiImport,
+  };
+  const wasmSource = await fs.promises.readFile(path.join(__dirname, "hcl2json.wasm"));
+  const module = await WebAssembly.compile(wasmSource);
+  const instance = await WebAssembly.instantiate(module, importObject);
+  wasi.start(instance);
+  // at this stage, we should have a JSON with intrinsics in.
+  // todo: use tree sitter to parse intrinsics on the way out
+  return JSON.parse(output.join("").trim());
+}
+
+(async () => {
+  const config = await hcl2json(path.join(__dirname, "sample.tf"));
+  console.log(JSON.stringify(config, null, 2));
+})();
 
 const SEP = "س";
 const parser = new Parser();
 parser.setLanguage(HCL);
 
-const sourceCode = fs.readFileSync(path.join(__dirname, "sample.tf"), "utf8");
-const tree = parser.parse(sourceCode);
-const code = codegen(tree.rootNode);
+// const sourceCode = fs.readFileSync(path.join(__dirname, "sample.tf"), "utf8");
+// const tree = parser.parse(sourceCode);
+// const code = codegen(tree.rootNode);
 
-console.log(`const config = ${code};`);
+// console.log(`const config = ${code};`);
 
 function codegen(node: SyntaxNode): ValueOrIntrinsic {
   switch (node.type) {

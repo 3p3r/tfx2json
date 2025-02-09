@@ -1,4 +1,5 @@
 sample.tf
+hcl2json.wasm
 tree-sitter-hcl
 
 # Logs

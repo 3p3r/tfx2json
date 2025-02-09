@@ -4,10 +4,7 @@
   "description": "WIP: Convert Terraform / OpenTofu templates (.tf) to JSON for saner ops.",
   "main": "index.js",
   "scripts": {
-    "install:hcl": "npm install --prefix ./tree-sitter-hcl",
-    "build:hcl": "cd tree-sitter-hcl && npm i && npx tree-sitter generate",
-    "clean:hcl": "cd tree-sitter-hcl && git checkout -- .",
-    "build": "npm run build:hcl && npm run clean:hcl",
+    "build": "tsx build.ts",
     "start": "tsx index.ts"
   },
   "repository": {
@@ -23,8 +20,11 @@
   "homepage": "https://github.com/3p3r/tfx2json#readme",
   "devDependencies": {
     "@types/node": "^22.13.1",
+    "memfs": "^4.17.0",
     "tree-sitter": "0.20.6",
     "tsx": "^4.19.2",
-    "web-tree-sitter": "0.20.8"
+    "wasi-js": "^1.7.3",
+    "web-tree-sitter": "0.20.8",
+    "zx": "^8.3.2"
   }
 }

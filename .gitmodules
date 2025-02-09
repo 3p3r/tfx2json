@@ -1,3 +1,6 @@
 [submodule "tree-sitter-hcl"]
 	path = tree-sitter-hcl
 	url = https://github.com/tree-sitter-grammars/tree-sitter-hcl
+[submodule "hcl2json"]
+	path = hcl2json
+	url = https://github.com/tmccombs/hcl2json
