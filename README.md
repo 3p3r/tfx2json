@@ -1,12 +1,13 @@
 # tfx2json
 
-WIP: Convert Terraform / OpenTofu templates (.tf) to JSON for saner ops.
+Convert Terraform / OpenTofu templates (.tf) to JSON for saner ops. This project
+also supports decoding HCL expressions into a parseable JSON format.
 
 ## Usage
 
-Go 1.22+ and tinygo are required for building.
+Go 1.22+ and [TinyGO](https://tinygo.org) are required for building.
 
-- make sure git submodules are up to date
+- make sure git submodules are up to date, `git`, `go` and `tinygo` are in $PATH
 - run `npm install`
 - run `npm run build`
 - put something in `sample.tf`

@@ -1,7 +1,7 @@
 {
   "name": "tfx2json",
   "version": "1.0.0",
-  "description": "WIP: Convert Terraform / OpenTofu templates (.tf) to JSON for saner ops.",
+  "description": "Convert Terraform / OpenTofu templates (.tf) to JSON for saner ops",
   "main": "index.js",
   "scripts": {
     "build": "tsx build.ts",
