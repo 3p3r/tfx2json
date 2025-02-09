@@ -1,19 +1,49 @@
 /// <reference path="./types.d.ts" />
 
-import fs from "node:fs";
 import path from "node:path";
 import assert from "node:assert";
 import { Writable } from "node:stream";
 import { randomFillSync } from "node:crypto";
 
-import traverse from "traverse";
+import memfs from "memfs";
+import atob from "atob-lite";
 import IsoWASI from "wasi-js";
+import traverse from "traverse";
+import memoize from "lodash/memoize";
+import type Parser from "tree-sitter";
 import type { WASIBindings } from "wasi-js";
 import { type IFsWithVolume, Volume } from "memfs";
-import memfs from "memfs";
 
-import Parser from "tree-sitter";
-import HCL from "./tree-sitter-hcl";
+import * as _TreeSitter from "./tree-sitter-hcl/docs/vendor/tree-sitter.js";
+// import * as _TreeSitter from "web-tree-sitter";
+
+// @ts-expect-error - handled by webpack loader
+import HCL2JSON_WASM_BASE64 from "./hcl2json.wasm";
+// @ts-expect-error - handled by webpack loader
+import TREE_SITTER_WASM_BASE64 from "./tree-sitter.wasm";
+// @ts-expect-error - handled by webpack loader
+import TREE_SITTER_HCL_WASM_BASE64 from "./tree-sitter-hcl.wasm";
+
+function decodeWasmFromBase64String(encoded: string) {
+  const binaryString = atob(encoded);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
+
+const LoadAndGetParser = memoize(async (): Promise<Parser> => {
+  // const wasmBinary1 = await fs.promises.readFile(path.join(__dirname, "tree-sitter.wasm"));
+  const wasmBinary1 = decodeWasmFromBase64String(TREE_SITTER_WASM_BASE64);
+  await _TreeSitter.default.init({ wasmBinary: wasmBinary1 });
+  // const wasmBinary2 = await fs.promises.readFile(path.join(__dirname, "tree-sitter-hcl.wasm"));
+  const wasmBinary2 = decodeWasmFromBase64String(TREE_SITTER_HCL_WASM_BASE64);
+  const HCL = await _TreeSitter.default.Language.load(Buffer.from(wasmBinary2));
+  const parser = new _TreeSitter.default();
+  parser.setLanguage(HCL);
+  return parser;
+});
 
 const bindings: () => Partial<WASIBindings> = () => ({
   hrtime: process.hrtime.bigint,
@@ -28,10 +58,8 @@ const bindings: () => Partial<WASIBindings> = () => ({
   path,
 });
 
-async function hcl2json(templatePath: string): Promise<ValueOrIntrinsic> {
-  const parser = new Parser();
-  parser.setLanguage(HCL);
-  const sourceCode = await fs.promises.readFile(templatePath, "utf8");
+export async function tfx2json(sourceCode: string): Promise<ValueOrIntrinsic> {
+  const parser = await LoadAndGetParser();
   const volume = { ...memfs.fs, ...new Volume() } as IFsWithVolume;
   volume.mkdirSync("/tmp", { recursive: true });
   volume.writeFileSync("/tmp/input.tf", sourceCode);
@@ -59,8 +87,9 @@ async function hcl2json(templatePath: string): Promise<ValueOrIntrinsic> {
     wasi_unstable: wasi.wasiImport,
     wasi: wasi.wasiImport,
   };
-  const wasmSource = await fs.promises.readFile(path.join(__dirname, "hcl2json.wasm"));
-  const module = await WebAssembly.compile(wasmSource);
+  // const wasmBinary = await fs.promises.readFile(path.join(__dirname, "hcl2json.wasm"));
+  const wasmBinary = decodeWasmFromBase64String(HCL2JSON_WASM_BASE64);
+  const module = await WebAssembly.compile(wasmBinary);
   const instance = await WebAssembly.instantiate(module, importObject);
   wasi.start(instance);
   const raw = JSON.parse(output.join("").trim());
@@ -85,11 +114,6 @@ async function hcl2json(templatePath: string): Promise<ValueOrIntrinsic> {
   });
   return remapped;
 }
-
-(async () => {
-  const config = await hcl2json(path.join(__dirname, "sample.tf"));
-  console.log(JSON.stringify(config, null, 2));
-})();
 
 function codegen(node: SyntaxNode): ValueOrIntrinsic {
   switch (node.type) {
@@ -143,7 +167,7 @@ function codegen(node: SyntaxNode): ValueOrIntrinsic {
     //   return emitTemplateExpr(node);
     case "comment":
     default:
-      console.log(`missing >>> ${node.type}`);
+      console.error(`missing hcl node unparse >>> ${node.type}`);
       return "";
   }
 }
@@ -336,3 +360,5 @@ export function IsParsedIntrinsic(value?: any): value is Intrinsic {
   if (value === undefined) return false;
   return typeof value === "object" && value !== null && "fn" in value && "args" in value && Array.isArray(value.args);
 }
+
+export default tfx2json;

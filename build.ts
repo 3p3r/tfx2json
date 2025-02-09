@@ -29,6 +29,7 @@ import { $, chalk, within } from "zx";
     await $`npm install`;
     await $`npx tree-sitter generate`;
     log(chalk.bgGreenBright("Built tree-sitter-hcl!"));
+    await $`cp docs/vendor/tree-sitter.wasm docs/tree-sitter-hcl.wasm ..`;
     await $`git checkout -- .`;
   });
 })()

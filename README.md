@@ -10,13 +10,30 @@ This is currently done in two passes:
 
 ## Usage
 
+Library is published as a UMD module for NodeJS currently.
+
+```sh
+npm install tfx2json
+```
+
+```js
+const { tfx2json } = require('tfx2json');
+const fs = require('fs');
+
+const hcl = tfx2json(fs.readFileSync('sample.tf'));
+console.log(JSON.stringify(hcl, null, 2));
+```
+
+## Build
+
 Go 1.22+ and [TinyGO](https://tinygo.org) are required for building.
 
 - make sure git submodules are up to date, `git`, `go` and `tinygo` are in $PATH
 - run `npm install`
 - run `npm run build`
+- run `npm run bundle`
 - put something in `sample.tf`
-- run `npm run start`
+- run `node -e 'var r=require;r("./dist").tfx2json(r("fs").readFileSync("sample.tf")).then(hcl=>console.log(JSON.stringify(hcl,null,2)))`
 
 given the following terraform template:
 
