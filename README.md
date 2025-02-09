@@ -50,6 +50,8 @@ resource "aws_security_group" "external_connection" {
   rando       = var.create_secondary_cluster ? 1 : 0
 
   ingress {
+    from_port3 = -123
+    from_port2 = 22 + 123
     from_port = 22
     to_port   = 22
     protocol  = "tcp"
@@ -135,6 +137,20 @@ currently it outputs:
                 "0.0.0.0/0"
               ],
               "from_port": 22,
+              "from_port2": {
+                "fn": "add",
+                "args": [
+                  {
+                    "name": "lhs",
+                    "value": 22
+                  },
+                  {
+                    "name": "rhs",
+                    "value": 123
+                  }
+                ]
+              },
+              "from_port3": -123,
               "protocol": "tcp",
               "to_port": 22
             }
@@ -171,11 +187,11 @@ currently it outputs:
               },
               {
                 "name": "true",
-                "value": "1"
+                "value": 1
               },
               {
                 "name": "false",
-                "value": "0"
+                "value": 0
               }
             ]
           },

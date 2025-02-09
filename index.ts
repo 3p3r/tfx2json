@@ -119,11 +119,108 @@ function codegen(node: SyntaxNode): ValueOrIntrinsic {
       return emitAttrSplat(node);
     case "full_splat":
       return emitFullSplat(node);
+    case "operation":
+      return emitOperation(node);
+    case "unary_operation":
+      return emitUnaryOperation(node);
+    case "binary_operation":
+      return emitBinaryOperation(node);
+    // todo:
+    // case "collection_value":
+    //   return emitCollectionValue(node);
+    // case "object":
+    //   return emitObject(node);
+    // case "tuple":
+    //   return emitTuple(node);
+    // case "for_expr":
+    //   return emitForExpr(node);
+    // case "for_tuple_expr":
+    //   return emitForTupleExpr(node);
+    // case "for_object_expr":
+    //   return emitForObjectExpr(node);
+    // v2:
+    // case "template_expr":
+    //   return emitTemplateExpr(node);
     case "comment":
     default:
       console.log(`missing >>> ${node.type}`);
       return "";
   }
+}
+
+function opToString(op: string): string {
+  switch (op) {
+    case "-":
+      return "sub";
+    case "+":
+      return "add";
+    case "*":
+      return "mul";
+    case "/":
+      return "div";
+    case "%":
+      return "mod";
+    case "==":
+      return "eq";
+    case "!=":
+      return "ne";
+    case ">":
+      return "gt";
+    case "<":
+      return "lt";
+    case ">=":
+      return "ge";
+    case "<=":
+      return "le";
+    case "&&":
+      return "and";
+    case "||":
+      return "or";
+    default:
+      return op;
+  }
+}
+
+function emitBinaryOperation(node: SyntaxNode): ValueOrIntrinsic {
+  assert(node.children.length === 3);
+  const lhs = codegen(node.children[0]);
+  const rhs = codegen(node.children[2]);
+  const op = node.children[1].text;
+  return {
+    fn: opToString(op),
+    args: [
+      {
+        name: "lhs",
+        value: lhs,
+      },
+      {
+        name: "rhs",
+        value: rhs,
+      },
+    ],
+  } as Intrinsic;
+}
+
+function emitUnaryOperation(node: SyntaxNode): ValueOrIntrinsic {
+  assert(node.children.length === 2);
+  const operator = node.children[0].text;
+  const operand = node.children[1];
+  if (operand.type !== "literal_value") {
+    return {
+      fn: operator === "-" ? "neg" : operator === "!" ? "not" : operator,
+      args: [
+        {
+          name: "operand",
+          value: codegen(operand),
+        },
+      ],
+    } as Intrinsic;
+  }
+  return codegen(node.namedChildren[0]);
+}
+
+function emitOperation(node: SyntaxNode): ValueOrIntrinsic {
+  return codegen(node.namedChildren[0]);
 }
 
 function emitFullSplat(node: SyntaxNode): ValueOrIntrinsic {
@@ -207,6 +304,10 @@ function emitVariableExpr(node: SyntaxNode): ValueOrIntrinsic {
 }
 
 function emitLiteralValue(node: SyntaxNode): ValueOrIntrinsic {
+  if (node.text === "null") return null;
+  if (node.text.match(/^\d+$/)) return Number.parseInt(node.text);
+  if (node.text.match(/^\d+\.\d+$/)) return Number.parseFloat(node.text);
+  if (node.text === "true" || node.text === "false") return node.text === "true";
   return node.text;
 }
 
